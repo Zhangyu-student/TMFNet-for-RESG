@@ -1,0 +1,20 @@
+# === runtime artifacts / results ===
+checkpoints/
+logs/
+runs/
+visualizations/
+script/
+ablation_ssim_weight/
+
+comparison_results/
+evaluation_results/
+
+# 你的 inference_results 有很多变体：inference_results / inference_results_old / inference_results_xxx
+inference_results*/
+*_results/.idea/
+inception-2015-12-05.pt
+.idea/
+__pycache__/
+*.py[cod]
+.venv/
+venv/

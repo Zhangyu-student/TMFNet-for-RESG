@@ -103,15 +103,14 @@ def image_metrics(
 def temporal_fusion_statistics(
     weights: torch.Tensor,
     quality: torch.Tensor,
-    gates: torch.Tensor,
 ) -> Dict[str, float]:
     """Summarize valid temporal maps shaped [T,1,H,W].
 
     Effective frames is 1 for single-frame selection and approaches T for
     uniform participation. Normalized entropy follows the same 0..1 scale.
     """
-    if weights.ndim != 4 or quality.shape != weights.shape or gates.shape != weights.shape:
-        raise ValueError("weights, quality, and gates must share shape [T,1,H,W].")
+    if weights.ndim != 4 or quality.shape != weights.shape:
+        raise ValueError("weights and quality must share shape [T,1,H,W].")
     temporal_length = int(weights.shape[0])
     if temporal_length < 1:
         raise ValueError("At least one valid temporal map is required.")
@@ -125,7 +124,6 @@ def temporal_fusion_statistics(
     effective_frames = 1.0 / w.square().sum(dim=0).clamp_min(1e-8)
     return {
         "mean_quality": float(quality.detach().float().mean().item()),
-        "mean_gate": float(gates.detach().float().mean().item()),
         "mean_max_weight": float(w.max(dim=0).values.mean().item()),
         "weight_entropy": float(entropy.mean().item()),
         "effective_frames": float(effective_frames.mean().item()),

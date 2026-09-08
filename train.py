@@ -148,7 +148,6 @@ def _visualize_validation_sample(
         valid_mask=batch["valid_mask"][sample_index],
         weights=aux["weights_full"][sample_index],
         quality=aux["quality_full"][sample_index],
-        gates=aux["gates_full"][sample_index],
         output_path=output_path,
     )
     if writer is not None:

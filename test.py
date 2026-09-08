@@ -56,7 +56,6 @@ def evaluate(config: Dict) -> None:
         "sam": 0.0,
         "mae": 0.0,
         "mean_quality": 0.0,
-        "mean_gate": 0.0,
         "mean_max_weight": 0.0,
         "weight_entropy": 0.0,
         "effective_frames": 0.0,
@@ -86,8 +85,7 @@ def evaluate(config: Dict) -> None:
                 valid_t = int(batch["valid_mask"][index].sum())
                 weights = aux["weights_full"][index, :valid_t]
                 quality = aux["quality_full"][index, :valid_t]
-                gates = aux["gates_full"][index, :valid_t]
-                fusion_stats = temporal_fusion_statistics(weights, quality, gates)
+                fusion_stats = temporal_fusion_statistics(weights, quality)
                 row: Dict[str, object] = {
                     "name": file_name,
                     "T": valid_t,
@@ -104,10 +102,8 @@ def evaluate(config: Dict) -> None:
                     sample_dir.mkdir(parents=True, exist_ok=True)
                     weights = weights[:, 0]
                     quality = quality[:, 0]
-                    gates = gates[:, 0]
                     np.save(sample_dir / "weights.npy", weights.detach().cpu().numpy())
                     np.save(sample_dir / "quality.npy", quality.detach().cpu().numpy())
-                    np.save(sample_dir / "contribution_gates.npy", gates.detach().cpu().numpy())
                     for time_index in range(valid_t):
                         Image.fromarray(colorize_weight(weights[time_index])).save(
                             sample_dir / f"weight_t{time_index}.png"
@@ -115,14 +111,11 @@ def evaluate(config: Dict) -> None:
                         Image.fromarray(colorize_weight(quality[time_index])).save(
                             sample_dir / f"quality_t{time_index}.png"
                         )
-                        Image.fromarray(colorize_weight(gates[time_index])).save(
-                            sample_dir / f"gate_t{time_index}.png"
-                        )
 
     with (output_dir / "metrics.csv").open("w", newline="", encoding="utf-8-sig") as handle:
         fieldnames = [
             "name", "T", "psnr", "ssim", "sam", "mae",
-            "mean_quality", "mean_gate", "mean_max_weight",
+            "mean_quality", "mean_max_weight",
             "weight_entropy", "effective_frames",
         ]
         writer = csv.DictWriter(handle, fieldnames=fieldnames)

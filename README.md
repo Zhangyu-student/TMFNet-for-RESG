@@ -50,13 +50,15 @@ that is added back to an input frame.
    - Quality scores are independent and are not forced to sum to one. No dates,
      cloud masks, or handcrafted GT-distance labels are used.
 
-4. **Quality-gated collaborative temporal fusion**
-   - Independent quality and contribution gates are normalized only at the
-     point where temporal features are fused.
+4. **Direct quality-to-weight temporal fusion**
+   - A single shallow-scale quality estimator is shared across the hierarchy;
+     its map is resized for the middle and bottleneck feature scales.
+   - Quality is normalized directly at the point where temporal features are
+     fused. There is no separate selection or contribution gate.
    - Coarse fusion weights are used as a configurable mild prior instead of
      being multiplied recursively, reducing winner-take-all sharpening.
-   - Full-resolution quality, contribution gates, and normalized fusion weights
-     are available separately for visualization and analysis.
+   - Full-resolution quality and normalized fusion weights are available for
+     visualization and analysis.
 
 5. **Direct reconstruction**
    - The decoder directly predicts the clear target image.
@@ -127,7 +129,6 @@ with torch.no_grad():
 
 print(prediction.shape)                    # [2,3,256,256]
 print(diagnostics["quality_full"].shape)  # independent reliability
-print(diagnostics["gates_full"].shape)    # absolute contribution gate
 print(diagnostics["weights_full"].shape)  # normalized fusion coefficient
 ```
 
@@ -231,9 +232,9 @@ Training also writes:
 - TensorBoard batch losses, learning rate, epoch metrics, and preview images;
 - `visualizations/TMFNet_pp/epoch_XXXX_<sample>.png` only.
 
-The comparison PNG contains four rows: all valid temporal inputs plus prediction
-and target, normalized fusion weights, independent quality maps, and contribution
-gates. Input/output images use a 2% per-channel linear stretch for display only.
+The comparison PNG contains three rows: all valid temporal inputs plus prediction
+and target, normalized fusion weights, and independent quality maps. Input/output
+images use a 2% per-channel linear stretch for display only.
 No additional per-image PNG or raw NPY diagnostics are written during training.
 All epoch visualizations are stored directly in the same visualization directory;
 no per-epoch or per-scene subdirectories are created.
@@ -273,11 +274,11 @@ python test_png.py --config configs/tmfnet_pp.json --checkpoint checkpoints/TMFN
 ```
 
 Outputs include restored images, GT images, per-image metrics, summary metrics,
-and three distinct temporal diagnostics:
+and two temporal diagnostics:
 
 - `quality`: independently estimated reliability (`0..1`), not sum-normalized;
-- `contribution_gates`: independent selection gate × quality (`0..1`);
-- `weights`: final normalized coefficients used for fusion (sum to one over T).
+- `weights`: coefficients obtained directly from quality and normalized to sum
+  to one over valid temporal inputs.
 
 `metrics.csv` also reports normalized weight entropy, effective frame count, and
 mean maximum weight. Low entropy, an effective frame count near `1`, and a

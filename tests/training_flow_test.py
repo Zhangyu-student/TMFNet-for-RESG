@@ -89,7 +89,7 @@ def main() -> None:
         assert metrics_csv.is_file()
         header = metrics_csv.read_text(encoding="utf-8-sig").splitlines()[0]
         assert "weight_entropy" in header and "effective_frames" in header
-        assert list((root / "inference" / "weights").glob("*/contribution_gates.npy"))
+        assert list((root / "inference" / "weights").glob("*/quality.npy"))
     print("End-to-end training flow test passed.")
 
 

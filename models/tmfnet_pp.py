@@ -20,9 +20,9 @@ class TMFNetPlusPlus(nn.Module):
 
     Main components:
       1. Shared multi-scale spatial encoder.
-      2. Feature-consistency reliability estimation.
+      2. One feature-consistency quality estimation branch.
       3. Bidirectional quality-conditioned selective SSM at the bottleneck.
-      4. Hierarchical state-guided temporal weight refinement.
+      4. Direct quality-derived temporal fusion at every scale.
       5. Direct clear-image reconstruction decoder.
     """
 
@@ -56,12 +56,6 @@ class TMFNetPlusPlus(nn.Module):
         self.quality1 = FeatureQualityEstimator(
             base_channels, hidden_channels=24, **quality_options
         )
-        self.quality2 = FeatureQualityEstimator(
-            base_channels * 2, hidden_channels=32, **quality_options
-        )
-        self.quality3 = FeatureQualityEstimator(
-            base_channels * 4, hidden_channels=48, **quality_options
-        )
 
         self.temporal_fusion = BidirectionalQualityTemporalSSM(
             channels=base_channels * 4,
@@ -70,18 +64,24 @@ class TMFNetPlusPlus(nn.Module):
             expansion=temporal_expansion,
             dropout=dropout,
         )
-        self.refine2 = HierarchicalWeightRefiner(
-            base_channels * 2, hidden_channels=32, coarse_blend=coarse_weight_blend
-        )
-        self.refine1 = HierarchicalWeightRefiner(
-            base_channels, hidden_channels=24, coarse_blend=coarse_weight_blend
-        )
+        self.refine2 = HierarchicalWeightRefiner(coarse_blend=coarse_weight_blend)
+        self.refine1 = HierarchicalWeightRefiner(coarse_blend=coarse_weight_blend)
         self.decoder = DirectReconstructionDecoder(base_channels, output_channels)
 
     @staticmethod
     def _default_mask(x: torch.Tensor) -> torch.Tensor:
         b, t = x.shape[:2]
         return torch.ones(b, t, dtype=torch.bool, device=x.device)
+
+    @staticmethod
+    def _resize_quality(quality: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
+        b, t = quality.shape[:2]
+        return F.interpolate(
+            quality.reshape(b * t, 1, quality.shape[-2], quality.shape[-1]),
+            size=size,
+            mode="bilinear",
+            align_corners=False,
+        ).reshape(b, t, 1, *size)
 
     def forward(
         self,
@@ -109,12 +109,12 @@ class TMFNetPlusPlus(nn.Module):
         f3 = f3.reshape(b, t, *f3.shape[1:])
 
         q1 = self.quality1(f1, valid_mask)
-        q2 = self.quality2(f2, valid_mask)
-        q3 = self.quality3(f3, valid_mask)
+        q2 = self._resize_quality(q1, f2.shape[-2:])
+        q3 = self._resize_quality(q1, f3.shape[-2:])
 
-        deep, w3, states, g3 = self.temporal_fusion(f3, q3, valid_mask)
-        skip2, w2, g2 = self.refine2(f2, q2, w3, valid_mask)
-        skip1, w1, g1 = self.refine1(f1, q1, w2, valid_mask)
+        deep, w3, states = self.temporal_fusion(f3, q3, valid_mask)
+        skip2, w2 = self.refine2(f2, q2, w3, valid_mask)
+        skip1, w1 = self.refine1(f1, q1, w2, valid_mask)
 
         output = self.decoder(deep, skip2, skip1, output_size=(h, w))
 
@@ -135,14 +135,7 @@ class TMFNetPlusPlus(nn.Module):
             mode="bilinear",
             align_corners=False,
         ).reshape(b, t, 1, h, w)
-        full_gates = F.interpolate(
-            g1.reshape(b * t, 1, g1.shape[-2], g1.shape[-1]),
-            size=(h, w),
-            mode="bilinear",
-            align_corners=False,
-        ).reshape(b, t, 1, h, w)
         full_quality = full_quality * valid_mask[:, :, None, None, None].to(full_quality.dtype)
-        full_gates = full_gates * valid_mask[:, :, None, None, None].to(full_gates.dtype)
 
         aux: Dict[str, torch.Tensor] = {
             "quality_s1": q1,
@@ -153,10 +146,6 @@ class TMFNetPlusPlus(nn.Module):
             "weights_s3": w3,
             "weights_full": full_weights,
             "quality_full": full_quality,
-            "gates_s1": g1,
-            "gates_s2": g2,
-            "gates_s3": g3,
-            "gates_full": full_gates,
             "temporal_states": states,
         }
         return output, aux

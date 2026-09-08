@@ -84,7 +84,6 @@ def save_training_visualization(
     valid_mask: Optional[torch.Tensor] = None,
     weights: Optional[torch.Tensor] = None,
     quality: Optional[torch.Tensor] = None,
-    gates: Optional[torch.Tensor] = None,
     stretch_percent: float = 2.0,
 ) -> Path:
     """Save input/output comparison with all temporal diagnostic maps.
@@ -129,15 +128,6 @@ def save_training_visualization(
                 for index in valid_indices
             ]
         )
-    if gates is not None:
-        gates = gates.detach().float().cpu()
-        rows.append(
-            [
-                (_colorize_map(gates[index]), f"Contribution T{index + 1}")
-                for index in valid_indices
-            ]
-        )
-
     columns = max(len(row) for row in rows)
     tile_width, tile_height = tile_size[0], tile_size[1] + 24
     canvas = Image.new(

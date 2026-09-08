@@ -72,7 +72,7 @@ def main() -> None:
 
     weights = torch.full((3, 1, 4, 4), 1.0 / 3.0)
     maps = torch.full_like(weights, 0.7)
-    stats = temporal_fusion_statistics(weights, maps, maps)
+    stats = temporal_fusion_statistics(weights, maps)
     assert abs(stats["weight_entropy"] - 1.0) < 1e-6
     assert abs(stats["effective_frames"] - 3.0) < 1e-6
     assert abs(stats["mean_max_weight"] - 1.0 / 3.0) < 1e-6

@@ -57,7 +57,6 @@ def main() -> None:
         comparison_path = root / "visualization" / "comparison.png"
         weights = torch.softmax(torch.randn(4, 1, 24, 20), dim=0)
         quality = torch.sigmoid(torch.randn(4, 1, 12, 10))
-        gates = torch.sigmoid(torch.randn(4, 1, 12, 10))
         save_training_visualization(
             observations=batch["cond_image"][1],
             prediction=batch["gt_image"][1] * 0.9,
@@ -65,14 +64,13 @@ def main() -> None:
             valid_mask=batch["valid_mask"][1],
             weights=weights,
             quality=quality,
-            gates=gates,
             output_path=comparison_path,
         )
         assert comparison_path.is_file()
         assert sorted(comparison_path.parent.iterdir()) == [comparison_path]
         with Image.open(comparison_path) as image:
-            # T inputs + prediction + target, then weight/quality/contribution rows.
-            assert image.size == (6 * 20, 4 * (24 + 24))
+            # T inputs + prediction + target, then fusion-weight and quality rows.
+            assert image.size == (6 * 20, 3 * (24 + 24))
     print("Dataset and visualization smoke test passed.")
 
 

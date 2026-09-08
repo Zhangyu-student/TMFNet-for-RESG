@@ -18,9 +18,10 @@
 - Unconstrained learned quality → robust temporal-median consistency prior with
   a bounded learned suppressor, structurally preserving `high = reliable`.
 - Last-token/mean aggregation → quality-gated bidirectional temporal fusion.
-- Competitive softmax and recursive log-weight sharpening → independent sigmoid
-  quality/contribution gates, normalized only at each actual feature fusion.
-- Independent skip averaging → hierarchical coarse-to-fine refinement with a
+- Three independent quality heads → one quality map resized across all scales.
+- Selection/contribution gates and local refinement scores → direct normalized
+  quality weights, with no redundant intermediate gate.
+- Independent skip averaging → quality-driven coarse-to-fine fusion with a
   configurable mild coarse-weight blend.
 - The current implementation uses direct decoder prediction without a
   base-image residual path.
@@ -41,9 +42,8 @@
 - The original `Sen2_MTC/<tile>/cloud|cloudless` layout remains supported.
 - Samples with fewer than `min_temporal` observations are rejected, and channel
   or spatial mismatches now produce explicit errors.
-- Inputs, prediction, ground truth, absolute error, temporal weights, and
-  independent quality maps, contribution gates, and normalized fusion weights
-  are saved together and as separate paper-ready files.
+- Training visualization combines inputs, prediction, target, quality, and
+  normalized fusion weights into one comparison PNG.
 - Test CSV output includes weight entropy, effective frame count, and maximum
   temporal weight so winner-take-all behavior can be measured directly.
 

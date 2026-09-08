@@ -24,7 +24,13 @@ def _natural_key(path: Path) -> List[object]:
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", path.name)]
 
 
-def _read_image(path: Path, channels: int = 3) -> torch.Tensor:
+def _read_image(
+    path: Path,
+    channels: int = 3,
+    reflectance_scale: float = 10000.0,
+) -> torch.Tensor:
+    if reflectance_scale <= 0:
+        raise ValueError("reflectance_scale must be positive.")
     suffix = path.suffix.lower()
     if suffix in {".tif", ".tiff"}:
         if tiff is None:
@@ -51,7 +57,9 @@ def _read_image(path: Path, channels: int = 3) -> torch.Tensor:
 
     max_value = float(np.nanmax(array)) if array.size else 1.0
     if max_value > 1.5:
-        divisor = 10000.0 if max_value > 255.0 else 255.0
+        # Sentinel-2 TIFF values are physical reflectance integers scaled by
+        # 10000, even when a dark image happens to have a maximum below 255.
+        divisor = reflectance_scale if suffix in {".tif", ".tiff"} else 255.0
         array = array / divisor
     array = np.clip(array, 0.0, 1.0)
     tensor = torch.from_numpy(np.ascontiguousarray(array.transpose(2, 0, 1)))
@@ -97,6 +105,7 @@ class Sen2MTCVariableDataset(data.Dataset):
         random_temporal_subset: bool = True,
         random_reverse: bool = True,
         augment: bool = True,
+        reflectance_scale: float = 10000.0,
     ) -> None:
         self.root = Path(data_root)
         if mode not in {"train", "val", "test"}:
@@ -112,6 +121,9 @@ class Sen2MTCVariableDataset(data.Dataset):
         self.random_temporal_subset = random_temporal_subset and mode == "train"
         self.random_reverse = random_reverse and mode == "train"
         self.augment = augment and mode == "train"
+        self.reflectance_scale = float(reflectance_scale)
+        if self.reflectance_scale <= 0:
+            raise ValueError("reflectance_scale must be positive.")
         self.records: List[SampleRecord] = []
 
         split_file = self.root / f"{mode}.txt"
@@ -176,8 +188,11 @@ class Sen2MTCVariableDataset(data.Dataset):
         record = self.records[index]
         indices = self._select_indices(len(record.observations))
         selected_paths = [record.observations[i] for i in indices]
-        observations = [_read_image(path, self.input_channels) for path in selected_paths]
-        target = _read_image(record.target, self.input_channels)
+        observations = [
+            _read_image(path, self.input_channels, self.reflectance_scale)
+            for path in selected_paths
+        ]
+        target = _read_image(record.target, self.input_channels, self.reflectance_scale)
         for path, observation in zip(selected_paths, observations):
             if observation.shape != target.shape:
                 raise ValueError(

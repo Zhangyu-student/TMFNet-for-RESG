@@ -27,6 +27,10 @@ def run_case(temporal_length: int) -> None:
     assert "base_image" not in aux
     assert "residual" not in aux
     assert aux["weights_full"].shape == (2, temporal_length, 1, 32, 32)
+    assert aux["quality_full"].shape == (2, temporal_length, 1, 32, 32)
+    assert aux["gates_full"].shape == (2, temporal_length, 1, 32, 32)
+    assert torch.all((aux["quality_full"] >= 0) & (aux["quality_full"] <= 1))
+    assert torch.all((aux["gates_full"] >= 0) & (aux["gates_full"] <= 1))
     sums = aux["weights_full"].sum(dim=1)
     assert torch.allclose(sums, torch.ones_like(sums), atol=1e-4)
 

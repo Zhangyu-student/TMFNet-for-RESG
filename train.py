@@ -26,7 +26,7 @@ from training_utils import (
 from visualize import save_training_visualization
 
 
-def validate(model, loader, criterion, device: torch.device) -> Dict[str, float]:
+def validate(model, loader, criterion, device: torch.device, config: Dict) -> Dict[str, float]:
     model.eval()
     totals = {"loss": 0.0, "psnr": 0.0, "ssim": 0.0, "sam": 0.0, "mae": 0.0}
     sample_count = 0
@@ -38,7 +38,13 @@ def validate(model, loader, criterion, device: torch.device) -> Dict[str, float]
             batch_size = output.shape[0]
             totals["loss"] += float(loss.item()) * batch_size
             for index in range(batch_size):
-                scores = image_metrics(output[index], batch["gt_image"][index])
+                scores = image_metrics(
+                    output[index],
+                    batch["gt_image"][index],
+                    dataset_type=str(config.get("dataset_type", "new_multi")),
+                    reflectance_scale=float(config.get("reflectance_scale", 10000.0)),
+                    reflectance_max=float(config.get("metric_reflectance_max", 2000.0)),
+                )
                 for key in ("psnr", "ssim", "sam", "mae"):
                     totals[key] += scores[key]
             sample_count += batch_size
@@ -108,7 +114,8 @@ def _visualize_validation_sample(
         target=batch["gt_image"][sample_index],
         valid_mask=batch["valid_mask"][sample_index],
         weights=aux["weights_full"][sample_index],
-        quality=aux["quality_s1"][sample_index],
+        quality=aux["quality_full"][sample_index],
+        gates=aux["gates_full"][sample_index],
         output_path=output_path,
     )
     if writer is not None:
@@ -231,7 +238,7 @@ def train(config: Dict) -> None:
                 )
                 continue
 
-            validation = validate(model, val_loader, criterion, device)
+            validation = validate(model, val_loader, criterion, device, config)
             improved = validation["psnr"] > best_psnr
             if improved:
                 best_psnr = validation["psnr"]

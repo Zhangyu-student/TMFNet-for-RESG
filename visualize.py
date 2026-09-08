@@ -84,6 +84,7 @@ def save_training_visualization(
     valid_mask: Optional[torch.Tensor] = None,
     weights: Optional[torch.Tensor] = None,
     quality: Optional[torch.Tensor] = None,
+    gates: Optional[torch.Tensor] = None,
     stretch_percent: float = 2.0,
 ) -> Path:
     """Save an original-style comparison plus weight/reliability diagnostics.
@@ -117,10 +118,15 @@ def save_training_visualization(
     ]
     if weights is not None:
         weights = weights.detach().float().cpu()
-        rows.append([(_colorize_map(weights[index]), f"Weight T{index}") for index in valid_indices])
+        rows.append(
+            [(_colorize_map(weights[index]), f"Fusion weight T{index}") for index in valid_indices]
+        )
     if quality is not None:
         quality = quality.detach().float().cpu()
-        rows.append([(_colorize_map(quality[index]), f"Reliability T{index}") for index in valid_indices])
+        rows.append([(_colorize_map(quality[index]), f"Quality T{index}") for index in valid_indices])
+    if gates is not None:
+        gates = gates.detach().float().cpu()
+        rows.append([(_colorize_map(gates[index]), f"Contribution T{index}") for index in valid_indices])
 
     columns = max(len(row) for row in rows)
     tile_width, tile_height = tile_size[0], tile_size[1] + 24
@@ -148,11 +154,19 @@ def save_training_visualization(
     if weights is not None:
         save_temporal_weights(weights[valid_indices], epoch_dir / "weights")
     if quality is not None:
-        quality_dir = epoch_dir / "reliability"
+        quality_dir = epoch_dir / "quality"
         quality_dir.mkdir(parents=True, exist_ok=True)
-        np.save(quality_dir / "reliability.npy", quality[valid_indices].numpy())
+        np.save(quality_dir / "quality.npy", quality[valid_indices].numpy())
         for temporal_index in valid_indices:
             Image.fromarray(_colorize_map(quality[temporal_index])).save(
-                quality_dir / f"reliability_t{temporal_index}.png"
+                quality_dir / f"quality_t{temporal_index}.png"
+            )
+    if gates is not None:
+        gate_dir = epoch_dir / "contribution_gates"
+        gate_dir.mkdir(parents=True, exist_ok=True)
+        np.save(gate_dir / "gates.npy", gates[valid_indices].numpy())
+        for temporal_index in valid_indices:
+            Image.fromarray(_colorize_map(gates[temporal_index])).save(
+                gate_dir / f"gate_t{temporal_index}.png"
             )
     return output_path

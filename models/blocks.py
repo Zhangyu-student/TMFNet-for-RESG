@@ -129,10 +129,24 @@ class FeatureQualityEstimator(nn.Module):
 
 
 class HierarchicalWeightRefiner(nn.Module):
-    """Refine coarse temporal logits with local features and reliability."""
+    """Fuse a scale with independent quality/contribution gates.
 
-    def __init__(self, channels: int, hidden_channels: int = 24) -> None:
+    Local gates are sigmoid scores and therefore do not compete across time.
+    They are normalized only when the features are actually fused.  The coarse
+    fusion weights are retained as a mild convex prior instead of being
+    multiplied recursively, which avoids winner-take-all sharpening.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        hidden_channels: int = 24,
+        coarse_blend: float = 0.25,
+    ) -> None:
         super().__init__()
+        if not 0.0 <= coarse_blend <= 1.0:
+            raise ValueError("coarse_blend must be in [0,1].")
+        self.coarse_blend = coarse_blend
         self.local_score = nn.Sequential(
             ConvGNAct(channels, hidden_channels, 3, 1),
             ResidualDetailBlock(hidden_channels),
@@ -145,22 +159,35 @@ class HierarchicalWeightRefiner(nn.Module):
         quality: torch.Tensor,
         coarse_weights: torch.Tensor,
         valid_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # features [B,T,C,H,W], quality [B,T,1,H,W]
         b, t, c, h, w = features.shape
-        local = self.local_score(features.reshape(b * t, c, h, w)).reshape(b, t, 1, h, w)
+        local_gate = torch.sigmoid(
+            self.local_score(features.reshape(b * t, c, h, w))
+        ).reshape(b, t, 1, h, w)
+        mask = valid_mask[:, :, None, None, None].to(features.dtype)
+        contribution_gate = local_gate * quality * mask
+        gate_sum = contribution_gate.sum(dim=1, keepdim=True)
+        uniform = mask / mask.sum(dim=1, keepdim=True).clamp_min(1.0)
+        local_weights = torch.where(
+            gate_sum > 1e-6,
+            contribution_gate / gate_sum.clamp_min(1e-6),
+            uniform,
+        )
+
         coarse = F.interpolate(
             coarse_weights.reshape(b * t, 1, coarse_weights.shape[-2], coarse_weights.shape[-1]),
             size=(h, w),
             mode="bilinear",
             align_corners=False,
         ).reshape(b, t, 1, h, w)
-        logits = local + torch.log(quality.clamp_min(1e-5)) + torch.log(coarse.clamp_min(1e-5))
-        mask = valid_mask[:, :, None, None, None]
-        logits = logits.masked_fill(~mask, -1e4)
-        weights = torch.softmax(logits, dim=1)
+        coarse = coarse * mask
+        coarse = coarse / coarse.sum(dim=1, keepdim=True).clamp_min(1e-6)
+        weights = (1.0 - self.coarse_blend) * local_weights + self.coarse_blend * coarse
+        weights = weights * mask
+        weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1e-6)
         fused = (features * weights).sum(dim=1)
-        return fused, weights
+        return fused, weights, contribution_gate
 
 
 class DirectReconstructionDecoder(nn.Module):

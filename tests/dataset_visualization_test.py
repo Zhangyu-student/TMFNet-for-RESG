@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from dataset import Sen2MTCVariableDataset, variable_temporal_collate
+from dataset import Sen2MTCVariableDataset, _read_image, variable_temporal_collate
 from visualize import save_training_visualization
 
 
@@ -40,6 +40,11 @@ def main() -> None:
         _write_scene(cloud_dir, clear_dir, "scene_b", frames=4)
         _write_scene(cloud_dir, clear_dir, "scene_too_short", frames=1)
 
+        dark_tiff = root / "dark.tif"
+        tifffile.imwrite(dark_tiff, np.full((4, 4, 3), 100, dtype=np.uint16))
+        dark_tensor = _read_image(dark_tiff)
+        assert torch.allclose(dark_tensor, torch.full_like(dark_tensor, -0.98))
+
         dataset = Sen2MTCVariableDataset(
             str(root), mode="val", min_temporal=2, max_temporal=6, augment=False
         )
@@ -52,6 +57,7 @@ def main() -> None:
         comparison_path = root / "visualization" / "comparison.png"
         weights = torch.softmax(torch.randn(4, 1, 24, 20), dim=0)
         quality = torch.sigmoid(torch.randn(4, 1, 12, 10))
+        gates = torch.sigmoid(torch.randn(4, 1, 12, 10))
         save_training_visualization(
             observations=batch["cond_image"][1],
             prediction=batch["gt_image"][1] * 0.9,
@@ -59,11 +65,13 @@ def main() -> None:
             valid_mask=batch["valid_mask"][1],
             weights=weights,
             quality=quality,
+            gates=gates,
             output_path=comparison_path,
         )
         assert comparison_path.is_file()
         assert (comparison_path.parent / "weights" / "weights.npy").is_file()
-        assert (comparison_path.parent / "reliability" / "reliability.npy").is_file()
+        assert (comparison_path.parent / "quality" / "quality.npy").is_file()
+        assert (comparison_path.parent / "contribution_gates" / "gates.npy").is_file()
         with Image.open(comparison_path) as image:
             assert image.width > 0 and image.height > 0
     print("Dataset and visualization smoke test passed.")

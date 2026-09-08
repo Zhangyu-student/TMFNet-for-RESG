@@ -23,6 +23,7 @@ def create_dataloader(config: Dict, mode: str) -> DataLoader:
         "max_temporal": config.get("max_temporal", 6),
         "random_temporal_subset": config.get("random_temporal_subset", True),
         "random_reverse": config.get("random_reverse", True),
+        "reflectance_scale": config.get("reflectance_scale", 10000.0),
     }
     if dataset_type != "new_multi":
         common = {"data_root": common["data_root"], "input_channels": common["input_channels"]}
@@ -65,6 +66,7 @@ def create_model(config: Dict, device: torch.device | str | None = None) -> TMFN
         state_dim=int(config.get("state_dim", 8)),
         temporal_expansion=int(config.get("temporal_expansion", 2)),
         dropout=float(config.get("dropout", 0.0)),
+        coarse_weight_blend=float(config.get("coarse_weight_blend", 0.25)),
     ).to(device)
 
     checkpoint_path = config.get("pretrained_path") or config.get("checkpoint")

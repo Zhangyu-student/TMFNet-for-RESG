@@ -41,13 +41,20 @@ that is added back to an input frame.
    - Forward and backward temporal states are merged.
    - Reliability controls the selective state updates.
 
-3. **Feature-consistency reliability estimation**
+3. **Feature-consistency quality estimation**
    - Reliability means `1 = reliable`, `0 = degraded` throughout the code.
    - It uses each feature and its difference from a temporal reference.
+   - Each time step receives an independent sigmoid quality score; quality
+     scores are not forced to sum to one and are learned end-to-end without
+     dates, cloud masks, or a handcrafted GT-distance label.
 
-4. **Hierarchical state-guided temporal fusion**
-   - Bottleneck temporal weights are refined at H/4 and H/2.
-   - Full-resolution temporal weights are available for visualization and analysis.
+4. **Quality-gated collaborative temporal fusion**
+   - Independent quality and contribution gates are normalized only at the
+     point where temporal features are fused.
+   - Coarse fusion weights are used as a configurable mild prior instead of
+     being multiplied recursively, reducing winner-take-all sharpening.
+   - Full-resolution quality, contribution gates, and normalized fusion weights
+     are available separately for visualization and analysis.
 
 5. **Direct reconstruction**
    - The decoder directly predicts the clear target image.
@@ -55,7 +62,8 @@ that is added back to an input frame.
 
 6. **Consistent engineering path**
    - Training and testing import the same `TMFNetPlusPlus` implementation.
-   - Metrics use a shared fixed `[0,1]` range rather than per-image min-max scaling.
+   - Sentinel-2 validation/testing converts model output back to reflectance,
+     clips it to `[0,2000]`, and uses `data_range=2000` without per-image min-max.
 
 ## Project structure
 
@@ -116,7 +124,9 @@ with torch.no_grad():
     )
 
 print(prediction.shape)                    # [2,3,256,256]
-print(diagnostics["weights_full"].shape) # [2,4,1,256,256]
+print(diagnostics["quality_full"].shape)  # independent reliability
+print(diagnostics["gates_full"].shape)    # absolute contribution gate
+print(diagnostics["weights_full"].shape)  # normalized fusion coefficient
 ```
 
 ## Data layout
@@ -159,6 +169,8 @@ Edit `configs/tmfnet_pp.json`, especially:
 - `min_temporal`, `max_temporal`
 - `save_dir`, `log_file`
 - `validation_interval`, `visualization_interval`, `visualization_dir`
+- `reflectance_scale` (normally `10000`) and `metric_reflectance_max` (`2000`)
+- `coarse_weight_blend` (`0.25` by default; set `0` to remove the coarse prior)
 - `tensorboard`, `tensorboard_dir`, `tensorboard_log_interval`
 - `checkpoint` for inference
 - `pretrained_path` for model-only initialization
@@ -177,6 +189,7 @@ For a fixed three-frame reproduction-style experiment, set:
 
 ```bash
 python tests/smoke_test.py
+python tests/metrics_test.py
 python tests/dataset_visualization_test.py
 python tests/training_flow_test.py
 ```
@@ -211,11 +224,13 @@ Training also writes:
 - TensorBoard batch losses, learning rate, epoch metrics, and preview images;
 - `visualizations/TMFNet_pp/epoch_XXXX_<sample>/comparison.png`;
 - separate inputs, prediction, ground truth, absolute error, temporal weights,
-  reliability maps, and their raw `.npy` arrays.
+  quality maps, contribution gates, and their raw `.npy` arrays.
 
 The comparison PNG uses the original repository's 2% per-channel linear stretch
-for display only. Losses and quantitative metrics continue to use the fixed
-physical `[0,1]` range.
+for display only. Training loss remains in the model's `[-1,1]` domain. For the
+`new_multi` Sentinel-2 dataset, validation metrics are computed directly after
+`[-1,1] -> [0,10000] -> clip [0,2000]`; PSNR/SSIM use a fixed range of `2000`,
+and MAE is reported in reflectance units.
 
 The optional consistency terms are:
 
@@ -237,7 +252,15 @@ python test_png.py --config configs/tmfnet_pp.json --checkpoint checkpoints/TMFN
 ```
 
 Outputs include restored images, GT images, per-image metrics, summary metrics,
-and temporal-weight maps.
+and three distinct temporal diagnostics:
+
+- `quality`: independently estimated reliability (`0..1`), not sum-normalized;
+- `contribution_gates`: independent selection gate × quality (`0..1`);
+- `weights`: final normalized coefficients used for fusion (sum to one over T).
+
+`metrics.csv` also reports normalized weight entropy, effective frame count, and
+mean maximum weight. Low entropy, an effective frame count near `1`, and a
+maximum weight near `1` together indicate winner-take-all fusion.
 
 ## Folder evaluation
 
@@ -271,6 +294,7 @@ be retrained because its decoder learned a residual instead of the target image.
 - Original-style unidirectional last/mean state vs bidirectional SSM.
 - Without feature-consistency reliability.
 - Without hierarchical weight refinement.
+- `coarse_weight_blend=0` vs `0.25` vs `0.5`.
 - Alternative direct reconstruction heads.
 - Fixed `T=3` vs variable-length training.
 - Order and temporal-subset robustness.

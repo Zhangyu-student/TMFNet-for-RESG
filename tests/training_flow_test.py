@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from train import train
+from test import evaluate
 
 
 def main() -> None:
@@ -23,13 +24,13 @@ def main() -> None:
         clear_dir = root / "Sen2_MTC" / tile / "cloudless"
         cloud_dir.mkdir(parents=True)
         clear_dir.mkdir(parents=True)
-        for split in ("train", "val"):
+        for split in ("train", "val", "test"):
             (root / f"{split}.txt").write_text(f"{tile}\n", encoding="utf-8")
         for frame in range(2):
-            image = np.full((32, 32, 3), 2500 + frame * 1000, dtype=np.uint16)
+            image = np.full((32, 32, 3), 500 + frame * 500, dtype=np.uint16)
             tifffile.imwrite(cloud_dir / f"scene_{frame}.tif", image)
         tifffile.imwrite(
-            clear_dir / "scene.tif", np.full((32, 32, 3), 5000, dtype=np.uint16)
+            clear_dir / "scene.tif", np.full((32, 32, 3), 1500, dtype=np.uint16)
         )
 
         config = {
@@ -51,6 +52,8 @@ def main() -> None:
             "device": "cpu",
             "amp": False,
             "tensorboard": False,
+            "reflectance_scale": 10000.0,
+            "metric_reflectance_max": 2000.0,
             "order_consistency_weight": 0.0,
             "subset_consistency_weight": 0.0,
             "save_dir": str(root / "checkpoints"),
@@ -68,6 +71,16 @@ def main() -> None:
         assert payload["epoch"] == 1
         assert list((root / "visualizations").glob("epoch_*/comparison.png"))
         assert (root / "logs" / "training.csv").is_file()
+
+        config["checkpoint"] = str(best)
+        config["test_output_dir"] = str(root / "inference")
+        config["save_temporal_weights"] = True
+        evaluate(config)
+        metrics_csv = root / "inference" / "metrics.csv"
+        assert metrics_csv.is_file()
+        header = metrics_csv.read_text(encoding="utf-8-sig").splitlines()[0]
+        assert "weight_entropy" in header and "effective_frames" in header
+        assert list((root / "inference" / "weights").glob("*/contribution_gates.npy"))
     print("End-to-end training flow test passed.")
 
 

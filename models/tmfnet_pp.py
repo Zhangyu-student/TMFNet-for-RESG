@@ -35,6 +35,7 @@ class TMFNetPlusPlus(nn.Module):
         state_dim: int = 8,
         temporal_expansion: int = 2,
         dropout: float = 0.0,
+        coarse_weight_blend: float = 0.25,
     ) -> None:
         super().__init__()
         if input_channels != output_channels:
@@ -55,8 +56,12 @@ class TMFNetPlusPlus(nn.Module):
             expansion=temporal_expansion,
             dropout=dropout,
         )
-        self.refine2 = HierarchicalWeightRefiner(base_channels * 2, hidden_channels=32)
-        self.refine1 = HierarchicalWeightRefiner(base_channels, hidden_channels=24)
+        self.refine2 = HierarchicalWeightRefiner(
+            base_channels * 2, hidden_channels=32, coarse_blend=coarse_weight_blend
+        )
+        self.refine1 = HierarchicalWeightRefiner(
+            base_channels, hidden_channels=24, coarse_blend=coarse_weight_blend
+        )
         self.decoder = DirectReconstructionDecoder(base_channels, output_channels)
 
     @staticmethod
@@ -93,9 +98,9 @@ class TMFNetPlusPlus(nn.Module):
         q2 = self.quality2(f2, valid_mask)
         q3 = self.quality3(f3, valid_mask)
 
-        deep, w3, states = self.temporal_fusion(f3, q3, valid_mask)
-        skip2, w2 = self.refine2(f2, q2, w3, valid_mask)
-        skip1, w1 = self.refine1(f1, q1, w2, valid_mask)
+        deep, w3, states, g3 = self.temporal_fusion(f3, q3, valid_mask)
+        skip2, w2, g2 = self.refine2(f2, q2, w3, valid_mask)
+        skip1, w1, g1 = self.refine1(f1, q1, w2, valid_mask)
 
         output = self.decoder(deep, skip2, skip1, output_size=(h, w))
 
@@ -110,6 +115,20 @@ class TMFNetPlusPlus(nn.Module):
         ).reshape(b, t, 1, h, w)
         full_weights = full_weights * valid_mask[:, :, None, None, None].to(full_weights.dtype)
         full_weights = full_weights / full_weights.sum(dim=1, keepdim=True).clamp_min(1e-6)
+        full_quality = F.interpolate(
+            q1.reshape(b * t, 1, q1.shape[-2], q1.shape[-1]),
+            size=(h, w),
+            mode="bilinear",
+            align_corners=False,
+        ).reshape(b, t, 1, h, w)
+        full_gates = F.interpolate(
+            g1.reshape(b * t, 1, g1.shape[-2], g1.shape[-1]),
+            size=(h, w),
+            mode="bilinear",
+            align_corners=False,
+        ).reshape(b, t, 1, h, w)
+        full_quality = full_quality * valid_mask[:, :, None, None, None].to(full_quality.dtype)
+        full_gates = full_gates * valid_mask[:, :, None, None, None].to(full_gates.dtype)
 
         aux: Dict[str, torch.Tensor] = {
             "quality_s1": q1,
@@ -119,6 +138,11 @@ class TMFNetPlusPlus(nn.Module):
             "weights_s2": w2,
             "weights_s3": w3,
             "weights_full": full_weights,
+            "quality_full": full_quality,
+            "gates_s1": g1,
+            "gates_s2": g2,
+            "gates_s3": g3,
+            "gates_full": full_gates,
             "temporal_states": states,
         }
         return output, aux

@@ -129,7 +129,12 @@ class SelectiveSSMStack(nn.Module):
 
 
 class BidirectionalQualityTemporalSSM(nn.Module):
-    """Bidirectional quality-conditioned temporal fusion."""
+    """Bidirectional quality-conditioned temporal fusion.
+
+    Quality and contribution gates are independent sigmoid values.  Temporal
+    normalization happens only at the final feature aggregation, so the gates
+    themselves retain an absolute reliability interpretation.
+    """
 
     def __init__(
         self,
@@ -177,7 +182,7 @@ class BidirectionalQualityTemporalSSM(nn.Module):
         features: torch.Tensor,
         quality: torch.Tensor,
         valid_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # features [B,T,C,H,W], quality [B,T,1,H,W]
         b, t, c, h, w = features.shape
         x = features.permute(0, 3, 4, 1, 2).reshape(b * h * w, t, c)
@@ -192,12 +197,20 @@ class BidirectionalQualityTemporalSSM(nn.Module):
         backward_state = self._reverse_valid(backward_rev, mask)
 
         states = self.merge(torch.cat([x, forward_state, backward_state], dim=-1))
-        logits = self.score(torch.cat([states, q], dim=-1))
-        logits = logits.masked_fill(~mask.unsqueeze(-1), -1e4)
-        weights = torch.softmax(logits, dim=1)
+        selection_gate = torch.sigmoid(self.score(torch.cat([states, q], dim=-1)))
+        valid = mask.unsqueeze(-1).to(states.dtype)
+        contribution_gate = selection_gate * q * valid
+        gate_sum = contribution_gate.sum(dim=1, keepdim=True)
+        uniform = valid / valid.sum(dim=1, keepdim=True).clamp_min(1.0)
+        weights = torch.where(
+            gate_sum > 1e-6,
+            contribution_gate / gate_sum.clamp_min(1e-6),
+            uniform,
+        )
         fused = (states * weights).sum(dim=1)
 
         fused = fused.reshape(b, h, w, c).permute(0, 3, 1, 2).contiguous()
         weights_map = weights.reshape(b, h, w, t, 1).permute(0, 3, 4, 1, 2).contiguous()
+        gates_map = contribution_gate.reshape(b, h, w, t, 1).permute(0, 3, 4, 1, 2).contiguous()
         states_map = states.reshape(b, h, w, t, c).permute(0, 3, 4, 1, 2).contiguous()
-        return fused, weights_map, states_map
+        return fused, weights_map, states_map, gates_map

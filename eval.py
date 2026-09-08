@@ -21,6 +21,8 @@ def main() -> None:
     parser.add_argument("--pred-dir", required=True)
     parser.add_argument("--gt-dir", required=True)
     parser.add_argument("--output", default="evaluation_results")
+    parser.add_argument("--dataset-type", default="new_multi", choices=("new_multi", "legacy"))
+    parser.add_argument("--reflectance-max", type=float, default=2000.0)
     parser.add_argument("--lpips", action="store_true")
     args = parser.parse_args()
 
@@ -41,17 +43,24 @@ def main() -> None:
         gt_path = gt_dir / pred_path.name
         if not gt_path.exists():
             continue
-        pred, gt = read_rgb(pred_path), read_rgb(gt_path)
+        pred_display, gt_display = read_rgb(pred_path), read_rgb(gt_path)
+        if args.dataset_type == "new_multi":
+            pred = pred_display * args.reflectance_max
+            gt = gt_display * args.reflectance_max
+            data_range = args.reflectance_max
+        else:
+            pred, gt = pred_display, gt_display
+            data_range = 1.0
         row = {
             "name": pred_path.name,
-            "psnr": peak_signal_noise_ratio(gt, pred, data_range=1.0),
-            "ssim": structural_similarity(gt, pred, channel_axis=-1, data_range=1.0),
+            "psnr": peak_signal_noise_ratio(gt, pred, data_range=data_range),
+            "ssim": structural_similarity(gt, pred, channel_axis=-1, data_range=data_range),
             "sam": calculate_sam(gt, pred),
             "mae": float(np.abs(gt - pred).mean()),
         }
         if lpips_model is not None:
-            pred_t = torch.from_numpy(pred.transpose(2, 0, 1)).unsqueeze(0).mul(2).sub(1)
-            gt_t = torch.from_numpy(gt.transpose(2, 0, 1)).unsqueeze(0).mul(2).sub(1)
+            pred_t = torch.from_numpy(pred_display.transpose(2, 0, 1)).unsqueeze(0).mul(2).sub(1)
+            gt_t = torch.from_numpy(gt_display.transpose(2, 0, 1)).unsqueeze(0).mul(2).sub(1)
             row["lpips"] = float(lpips_model(pred_t, gt_t).item())
         rows.append(row)
 

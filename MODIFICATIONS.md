@@ -6,16 +6,20 @@
 - Reliability semantics are unified as `1 = reliable`, `0 = degraded`.
 - All temporal blocks return complete state sequences rather than an incompatible
   final-state tensor between stacked blocks.
-- Evaluation uses a fixed physical normalization range and no per-image min-max
-  stretching.
+- Sentinel-2 validation/testing maps `[-1,1]` back through the `10000` scale,
+  clips to `[0,2000]`, and evaluates with `data_range=2000`; it does not apply
+  per-image min-max stretching.
 
 ## Architecture changes
 
 - Fixed three-frame input → variable-length input with padding mask.
 - Unidirectional gated recurrence → bidirectional input-dependent diagonal SSM.
-- Frame-only suppression head → multi-scale feature-consistency reliability.
-- Last-token/mean aggregation → learned state-conditioned temporal selection.
-- Independent skip averaging → hierarchical coarse-to-fine weight refinement.
+- Frame-only suppression head → multi-scale feature-consistency quality.
+- Last-token/mean aggregation → quality-gated bidirectional temporal fusion.
+- Competitive softmax and recursive log-weight sharpening → independent sigmoid
+  quality/contribution gates, normalized only at each actual feature fusion.
+- Independent skip averaging → hierarchical coarse-to-fine refinement with a
+  configurable mild coarse-weight blend.
 - The current implementation uses direct decoder prediction without a
   base-image residual path.
 
@@ -36,7 +40,10 @@
 - Samples with fewer than `min_temporal` observations are rejected, and channel
   or spatial mismatches now produce explicit errors.
 - Inputs, prediction, ground truth, absolute error, temporal weights, and
-  reliability maps are saved together and as separate paper-ready files.
+  independent quality maps, contribution gates, and normalized fusion weights
+  are saved together and as separate paper-ready files.
+- Test CSV output includes weight entropy, effective frame count, and maximum
+  temporal weight so winner-take-all behavior can be measured directly.
 
 ## Interface
 

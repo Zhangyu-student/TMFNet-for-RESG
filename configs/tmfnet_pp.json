@@ -19,7 +19,7 @@
   "quality_temperature": 1.5,
   "quality_learned_strength": 0.25,
   "quality_floor": 0.02,
-  "batch_size": 4,
+  "batch_size": 8,
   "num_workers": 4,
   "num_epochs": 300,
   "learning_rate": 0.0001,
@@ -43,12 +43,12 @@
   "resume_checkpoint": "",
   "test_output_dir": "inference_results/TMFNet_pp",
   "save_temporal_weights": true,
-  "order_consistency_weight": 0.02,
-  "subset_consistency_weight": 0.05,
+  "order_consistency_weight": 0.0,
+  "subset_consistency_weight": 0.0,
   "loss": {
     "l1_weight": 1.0,
     "gradient_weight": 0.1,
     "ssim_weight": 0.1,
-    "sam_weight": 0.02
+    "sam_weight": 0.0
   }
 }

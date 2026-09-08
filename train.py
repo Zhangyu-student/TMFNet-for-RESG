@@ -140,7 +140,7 @@ def _visualize_validation_sample(
         prediction, aux = model(batch["cond_image"], batch["valid_mask"], return_aux=True)
     sample_index = 0
     sample_name = Path(str(batch["path"][sample_index])).stem
-    output_path = output_root / f"epoch_{epoch:04d}_{sample_name}" / "comparison.png"
+    output_path = output_root / f"epoch_{epoch:04d}_{sample_name}.png"
     output_path = save_training_visualization(
         observations=batch["cond_image"][sample_index],
         prediction=prediction[sample_index],

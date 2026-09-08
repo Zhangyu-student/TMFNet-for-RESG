@@ -69,12 +69,10 @@ def main() -> None:
             output_path=comparison_path,
         )
         assert comparison_path.is_file()
-        assert (comparison_path.parent / "weights" / "weights.npy").is_file()
-        assert (comparison_path.parent / "quality" / "quality.npy").is_file()
-        assert (comparison_path.parent / "contribution_gates" / "gates.npy").is_file()
+        assert sorted(comparison_path.parent.iterdir()) == [comparison_path]
         with Image.open(comparison_path) as image:
-            # Original-style main panel: T inputs + prediction + target, one row.
-            assert image.size == (6 * 20, 24 + 24)
+            # T inputs + prediction + target, then weight/quality/contribution rows.
+            assert image.size == (6 * 20, 4 * (24 + 24))
     print("Dataset and visualization smoke test passed.")
 
 

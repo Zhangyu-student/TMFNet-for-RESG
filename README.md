@@ -229,14 +229,14 @@ Training also writes:
 
 - one CSV row per validation epoch;
 - TensorBoard batch losses, learning rate, epoch metrics, and preview images;
-- `visualizations/TMFNet_pp/epoch_XXXX_<sample>/comparison.png`;
-- separate inputs, prediction, ground truth, absolute error, temporal weights,
-  quality maps, contribution gates, and their raw `.npy` arrays.
+- `visualizations/TMFNet_pp/epoch_XXXX_<sample>.png` only.
 
-The main comparison PNG follows the original one-row layout: all valid temporal
-inputs, prediction, and target. It uses a 2% per-channel linear stretch for
-display only. Error, quality, contribution, and weight maps remain available as
-separate files instead of being inserted into the main panel.
+The comparison PNG contains four rows: all valid temporal inputs plus prediction
+and target, normalized fusion weights, independent quality maps, and contribution
+gates. Input/output images use a 2% per-channel linear stretch for display only.
+No additional per-image PNG or raw NPY diagnostics are written during training.
+All epoch visualizations are stored directly in the same visualization directory;
+no per-epoch or per-scene subdirectories are created.
 
 The validation scene is selected in a seeded random order. Every validation
 scene is used once before a new shuffled cycle begins, so successive epochs do

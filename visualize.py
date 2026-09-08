@@ -87,7 +87,7 @@ def save_training_visualization(
     gates: Optional[torch.Tensor] = None,
     stretch_percent: float = 2.0,
 ) -> Path:
-    """Save the original single-row comparison and separate diagnostics.
+    """Save input/output comparison with all temporal diagnostic maps.
 
     Inputs are unbatched: observations [T,C,H,W], prediction/target [C,H,W].
     The 2% linear stretch follows the original repository and affects PNGs only.
@@ -108,59 +108,46 @@ def save_training_visualization(
     input_arrays = [_display_rgb(observations[i], stretch_percent) for i in valid_indices]
     pred_array = _display_rgb(prediction, stretch_percent)
     target_array = _display_rgb(target, stretch_percent)
-    pred01 = ((prediction + 1.0) * 0.5).clamp(0.0, 1.0)
-    target01 = ((target + 1.0) * 0.5).clamp(0.0, 1.0)
-    error_array = _colorize_map((pred01 - target01).abs().mean(dim=0), normalize=True)
-
     comparison = [
-        (array, f"Input T{position + 1}")
-        for position, array in enumerate(input_arrays)
+        (array, f"Input T{temporal_index + 1}")
+        for array, temporal_index in zip(input_arrays, valid_indices)
     ] + [(pred_array, "Prediction"), (target_array, "Target")]
+    rows: list[list[tuple[np.ndarray, str]]] = [comparison]
     if weights is not None:
         weights = weights.detach().float().cpu()
+        rows.append(
+            [
+                (_colorize_map(weights[index]), f"Fusion weight T{index + 1}")
+                for index in valid_indices
+            ]
+        )
     if quality is not None:
         quality = quality.detach().float().cpu()
+        rows.append(
+            [
+                (_colorize_map(quality[index]), f"Quality T{index + 1}")
+                for index in valid_indices
+            ]
+        )
     if gates is not None:
         gates = gates.detach().float().cpu()
-
-    columns = len(comparison)
-    tile_width, tile_height = tile_size[0], tile_size[1] + 24
-    canvas = Image.new("RGB", (columns * tile_width, tile_height), (10, 10, 10))
-    for column_index, (array, label) in enumerate(comparison):
-        canvas.paste(
-            _labeled_tile(array, label, tile_size),
-            (column_index * tile_width, 0),
+        rows.append(
+            [
+                (_colorize_map(gates[index]), f"Contribution T{index + 1}")
+                for index in valid_indices
+            ]
         )
-    canvas.save(output_path)
 
-    # Separate files reproduce the original visualize2.py workflow for paper figures.
-    epoch_dir = output_path.parent
-    for array, temporal_index in zip(input_arrays, valid_indices):
-        image_path = epoch_dir / "inputs" / f"input_t{temporal_index}.png"
-        image_path.parent.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(array).save(image_path)
-    for name, array in (
-        ("prediction.png", pred_array),
-        ("ground_truth.png", target_array),
-        ("absolute_error.png", error_array),
-    ):
-        Image.fromarray(array).save(epoch_dir / name)
-    if weights is not None:
-        save_temporal_weights(weights[valid_indices], epoch_dir / "weights")
-    if quality is not None:
-        quality_dir = epoch_dir / "quality"
-        quality_dir.mkdir(parents=True, exist_ok=True)
-        np.save(quality_dir / "quality.npy", quality[valid_indices].numpy())
-        for temporal_index in valid_indices:
-            Image.fromarray(_colorize_map(quality[temporal_index])).save(
-                quality_dir / f"quality_t{temporal_index}.png"
+    columns = max(len(row) for row in rows)
+    tile_width, tile_height = tile_size[0], tile_size[1] + 24
+    canvas = Image.new(
+        "RGB", (columns * tile_width, len(rows) * tile_height), (10, 10, 10)
+    )
+    for row_index, row in enumerate(rows):
+        for column_index, (array, label) in enumerate(row):
+            canvas.paste(
+                _labeled_tile(array, label, tile_size),
+                (column_index * tile_width, row_index * tile_height),
             )
-    if gates is not None:
-        gate_dir = epoch_dir / "contribution_gates"
-        gate_dir.mkdir(parents=True, exist_ok=True)
-        np.save(gate_dir / "gates.npy", gates[valid_indices].numpy())
-        for temporal_index in valid_indices:
-            Image.fromarray(_colorize_map(gates[temporal_index])).save(
-                gate_dir / f"gate_t{temporal_index}.png"
-            )
+    canvas.save(output_path)
     return output_path

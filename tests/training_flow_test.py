@@ -76,7 +76,9 @@ def main() -> None:
         payload = torch.load(latest, map_location="cpu", weights_only=False)
         assert {"model", "optimizer", "scheduler", "epoch", "best_metric", "config"} <= payload.keys()
         assert payload["epoch"] == 1
-        assert list((root / "visualizations").glob("epoch_*/comparison.png"))
+        visualizations = list((root / "visualizations").glob("epoch_*.png"))
+        assert visualizations
+        assert not any(path.is_dir() for path in (root / "visualizations").iterdir())
         assert (root / "logs" / "training.csv").is_file()
 
         config["checkpoint"] = str(best)

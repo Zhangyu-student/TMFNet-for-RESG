@@ -103,29 +103,79 @@ class SharedFrameEncoder(nn.Module):
 
 
 class FeatureQualityEstimator(nn.Module):
-    """Estimate reliability, where 1 means reliable and 0 means degraded.
+    """Estimate reliability with a non-invertible consistency prior.
 
-    The estimator compares each observation with a temporal reference feature.
+    A robust temporal median defines the reference. Larger feature disagreement
+    always lowers the prior. The learned branch may suppress suspicious regions
+    further, but cannot turn a strong temporal outlier into high reliability.
     """
 
-    def __init__(self, channels: int, hidden_channels: int = 32) -> None:
+    def __init__(
+        self,
+        channels: int,
+        hidden_channels: int = 32,
+        temperature: float = 1.5,
+        learned_strength: float = 0.25,
+        quality_floor: float = 0.02,
+    ) -> None:
         super().__init__()
+        if temperature <= 0:
+            raise ValueError("temperature must be positive.")
+        if not 0.0 <= learned_strength <= 1.0:
+            raise ValueError("learned_strength must be in [0,1].")
+        if not 0.0 <= quality_floor < 1.0:
+            raise ValueError("quality_floor must be in [0,1).")
+        self.temperature = float(temperature)
+        self.learned_strength = float(learned_strength)
+        self.quality_floor = float(quality_floor)
         self.net = nn.Sequential(
             ConvGNAct(channels * 2, hidden_channels, 3, 1),
             ResidualDetailBlock(hidden_channels),
             nn.Conv2d(hidden_channels, 1, 1),
         )
 
+    @staticmethod
+    def _masked_temporal_median(
+        features: torch.Tensor,
+        valid_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return the per-channel median of valid frames as [B,1,C,H,W]."""
+        b, _, c, h, w = features.shape
+        mask = valid_mask[:, :, None, None, None]
+        sorted_features = features.masked_fill(~mask, torch.inf).sort(dim=1).values
+        counts = valid_mask.sum(dim=1)
+        lower = ((counts - 1) // 2).view(b, 1, 1, 1, 1).expand(b, 1, c, h, w)
+        upper = (counts // 2).view(b, 1, 1, 1, 1).expand(b, 1, c, h, w)
+        lower_value = sorted_features.gather(1, lower)
+        upper_value = sorted_features.gather(1, upper)
+        return 0.5 * (lower_value + upper_value)
+
     def forward(self, features: torch.Tensor, valid_mask: torch.Tensor) -> torch.Tensor:
         # features: [B,T,C,H,W], valid_mask: [B,T]
         b, t, c, h, w = features.shape
         mask = valid_mask[:, :, None, None, None].to(features.dtype)
-        denom = mask.sum(dim=1, keepdim=True).clamp_min(1.0)
-        reference = (features * mask).sum(dim=1, keepdim=True) / denom
-        difference = torch.abs(features - reference)
-        quality = self.net(torch.cat([features, difference], dim=2).reshape(b * t, c * 2, h, w))
-        quality = torch.sigmoid(quality).reshape(b, t, 1, h, w)
-        return quality * mask
+        # The reference is a statistic, not a trainable route. Detaching it
+        # avoids retaining the temporal sort graph and keeps memory overhead low.
+        reference = self._masked_temporal_median(features.detach(), valid_mask)
+        difference = torch.abs(features - reference) * mask
+
+        # Normalize disagreement per sample so the meaning is stable across
+        # feature scales. Detaching the prior prevents the encoder from
+        # collapsing its features merely to maximize quality.
+        distance = difference.mean(dim=2, keepdim=True)
+        valid_pixels = valid_mask.sum(dim=1).to(features.dtype) * float(h * w)
+        distance_scale = distance.sum(dim=(1, 3, 4), keepdim=True)
+        distance_scale = distance_scale / valid_pixels.view(b, 1, 1, 1, 1).clamp_min(1.0)
+        relative_distance = (distance / distance_scale.clamp_min(1e-4)).detach()
+        consistency_prior = torch.exp(-self.temperature * relative_distance)
+        consistency_prior = consistency_prior.clamp(min=self.quality_floor, max=1.0) * mask
+
+        learned = self.net(
+            torch.cat([features, difference], dim=2).reshape(b * t, c * 2, h, w)
+        )
+        learned = torch.sigmoid(learned).reshape(b, t, 1, h, w)
+        modulation = 1.0 - self.learned_strength + self.learned_strength * learned
+        return consistency_prior * modulation * mask
 
 
 class HierarchicalWeightRefiner(nn.Module):

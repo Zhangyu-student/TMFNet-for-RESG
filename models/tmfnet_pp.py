@@ -36,6 +36,9 @@ class TMFNetPlusPlus(nn.Module):
         temporal_expansion: int = 2,
         dropout: float = 0.0,
         coarse_weight_blend: float = 0.25,
+        quality_temperature: float = 1.5,
+        quality_learned_strength: float = 0.25,
+        quality_floor: float = 0.02,
     ) -> None:
         super().__init__()
         if input_channels != output_channels:
@@ -45,9 +48,20 @@ class TMFNetPlusPlus(nn.Module):
         self.base_channels = base_channels
 
         self.encoder = SharedFrameEncoder(input_channels, base_channels)
-        self.quality1 = FeatureQualityEstimator(base_channels, hidden_channels=24)
-        self.quality2 = FeatureQualityEstimator(base_channels * 2, hidden_channels=32)
-        self.quality3 = FeatureQualityEstimator(base_channels * 4, hidden_channels=48)
+        quality_options = {
+            "temperature": quality_temperature,
+            "learned_strength": quality_learned_strength,
+            "quality_floor": quality_floor,
+        }
+        self.quality1 = FeatureQualityEstimator(
+            base_channels, hidden_channels=24, **quality_options
+        )
+        self.quality2 = FeatureQualityEstimator(
+            base_channels * 2, hidden_channels=32, **quality_options
+        )
+        self.quality3 = FeatureQualityEstimator(
+            base_channels * 4, hidden_channels=48, **quality_options
+        )
 
         self.temporal_fusion = BidirectionalQualityTemporalSSM(
             channels=base_channels * 4,

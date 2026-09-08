@@ -43,10 +43,12 @@ that is added back to an input frame.
 
 3. **Feature-consistency quality estimation**
    - Reliability means `1 = reliable`, `0 = degraded` throughout the code.
-   - It uses each feature and its difference from a temporal reference.
-   - Each time step receives an independent sigmoid quality score; quality
-     scores are not forced to sum to one and are learned end-to-end without
-     dates, cloud masks, or a handcrafted GT-distance label.
+   - A per-pixel temporal median provides a robust feature reference.
+   - Larger normalized disagreement is structurally mapped to lower quality;
+     the learned branch may only suppress quality further and cannot invert a
+     strong outlier into high reliability.
+   - Quality scores are independent and are not forced to sum to one. No dates,
+     cloud masks, or handcrafted GT-distance labels are used.
 
 4. **Quality-gated collaborative temporal fusion**
    - Independent quality and contribution gates are normalized only at the
@@ -62,8 +64,8 @@ that is added back to an input frame.
 
 6. **Consistent engineering path**
    - Training and testing import the same `TMFNetPlusPlus` implementation.
-   - Sentinel-2 validation/testing converts model output back to reflectance,
-     clips it to `[0,2000]`, and uses `data_range=2000` without per-image min-max.
+   - The default metric path reproduces the original TMFNet conversion and
+     metric formulas; a fixed physical `[0,2000]` mode is also available.
 
 ## Project structure
 
@@ -170,7 +172,12 @@ Edit `configs/tmfnet_pp.json`, especially:
 - `save_dir`, `log_file`
 - `validation_interval`, `visualization_interval`, `visualization_dir`
 - `reflectance_scale` (normally `10000`) and `metric_reflectance_max` (`2000`)
+- `metric_mode`: `original_tmfnet` for baseline comparability, or
+  `reflectance_2000` for fixed-range physical metrics
 - `coarse_weight_blend` (`0.25` by default; set `0` to remove the coarse prior)
+- `quality_temperature`: strength of temporal-outlier suppression (`1.5`)
+- `quality_learned_strength`: maximum learned downward adjustment (`0.25`)
+- `quality_floor`: numerical lower bound for a valid frame (`0.02`)
 - `tensorboard`, `tensorboard_dir`, `tensorboard_log_interval`
 - `checkpoint` for inference
 - `pretrained_path` for model-only initialization
@@ -226,11 +233,25 @@ Training also writes:
 - separate inputs, prediction, ground truth, absolute error, temporal weights,
   quality maps, contribution gates, and their raw `.npy` arrays.
 
-The comparison PNG uses the original repository's 2% per-channel linear stretch
-for display only. Training loss remains in the model's `[-1,1]` domain. For the
-`new_multi` Sentinel-2 dataset, validation metrics are computed directly after
-`[-1,1] -> [0,10000] -> clip [0,2000]`; PSNR/SSIM use a fixed range of `2000`,
-and MAE is reported in reflectance units.
+The main comparison PNG follows the original one-row layout: all valid temporal
+inputs, prediction, and target. It uses a 2% per-channel linear stretch for
+display only. Error, quality, contribution, and weight maps remain available as
+separate files instead of being inserted into the main panel.
+
+The validation scene is selected in a seeded random order. Every validation
+scene is used once before a new shuffled cycle begins, so successive epochs do
+not always visualize the first sample and runs remain reproducible.
+
+For `new_multi`, the default `metric_mode=original_tmfnet` reproduces the old
+pipeline: `[-1,1] -> [0,10000] -> clip [0,2000]`, independent per-image min-max
+conversion to uint8, then PSNR/SSIM/SAM on RGB; MAE remains model-domain L1.
+This is useful for direct comparison with historical TMFNet results, but the
+independent min-max step can hide radiometric bias. Set
+`metric_mode=reflectance_2000` for fixed-range PSNR/SSIM/SAM and reflectance-unit
+MAE without per-image min-max. Training loss always remains in `[-1,1]`.
+
+Because the two modes use different preprocessing (and different MAE units),
+their numerical results must not be mixed in one comparison table.
 
 The optional consistency terms are:
 
@@ -288,6 +309,9 @@ strictly compatible. Train TMFNet++ from scratch, or selectively initialize the
 shared CNN layers after manually mapping matching tensor names and shapes.
 Checkpoints produced by the earlier base-residual TMFNet++ variant should also
 be retrained because its decoder learned a residual instead of the target image.
+Checkpoints trained before the median-consistency quality constraint can load
+because parameter shapes are unchanged, but should be retrained for the new
+high-quality/low-degradation semantics.
 
 ## Recommended ablations
 

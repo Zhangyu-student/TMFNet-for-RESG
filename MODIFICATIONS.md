@@ -6,15 +6,17 @@
 - Reliability semantics are unified as `1 = reliable`, `0 = degraded`.
 - All temporal blocks return complete state sequences rather than an incompatible
   final-state tensor between stacked blocks.
-- Sentinel-2 validation/testing maps `[-1,1]` back through the `10000` scale,
-  clips to `[0,2000]`, and evaluates with `data_range=2000`; it does not apply
-  per-image min-max stretching.
+- Sentinel-2 validation/testing supports both the exact original TMFNet
+  per-image min-max metric path and a fixed `[0,2000]` physical metric path.
+  The original-compatible mode is the default for baseline comparison.
 
 ## Architecture changes
 
 - Fixed three-frame input → variable-length input with padding mask.
 - Unidirectional gated recurrence → bidirectional input-dependent diagonal SSM.
 - Frame-only suppression head → multi-scale feature-consistency quality.
+- Unconstrained learned quality → robust temporal-median consistency prior with
+  a bounded learned suppressor, structurally preserving `high = reliable`.
 - Last-token/mean aggregation → quality-gated bidirectional temporal fusion.
 - Competitive softmax and recursive log-weight sharpening → independent sigmoid
   quality/contribution gates, normalized only at each actual feature fusion.

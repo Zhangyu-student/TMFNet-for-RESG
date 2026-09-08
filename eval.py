@@ -23,6 +23,11 @@ def main() -> None:
     parser.add_argument("--output", default="evaluation_results")
     parser.add_argument("--dataset-type", default="new_multi", choices=("new_multi", "legacy"))
     parser.add_argument("--reflectance-max", type=float, default=2000.0)
+    parser.add_argument(
+        "--metric-mode",
+        default="original_tmfnet",
+        choices=("original_tmfnet", "reflectance_2000"),
+    )
     parser.add_argument("--lpips", action="store_true")
     args = parser.parse_args()
 
@@ -44,13 +49,13 @@ def main() -> None:
         if not gt_path.exists():
             continue
         pred_display, gt_display = read_rgb(pred_path), read_rgb(gt_path)
-        if args.dataset_type == "new_multi":
+        if args.dataset_type == "new_multi" and args.metric_mode == "reflectance_2000":
             pred = pred_display * args.reflectance_max
             gt = gt_display * args.reflectance_max
             data_range = args.reflectance_max
         else:
-            pred, gt = pred_display, gt_display
-            data_range = 1.0
+            pred, gt = pred_display * 255.0, gt_display * 255.0
+            data_range = 255.0
         row = {
             "name": pred_path.name,
             "psnr": peak_signal_noise_ratio(gt, pred, data_range=data_range),

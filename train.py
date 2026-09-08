@@ -44,6 +44,7 @@ def validate(model, loader, criterion, device: torch.device, config: Dict) -> Di
                     dataset_type=str(config.get("dataset_type", "new_multi")),
                     reflectance_scale=float(config.get("reflectance_scale", 10000.0)),
                     reflectance_max=float(config.get("metric_reflectance_max", 2000.0)),
+                    metric_mode=str(config.get("metric_mode", "original_tmfnet")),
                 )
                 for key in ("psnr", "ssim", "sam", "mae"):
                     totals[key] += scores[key]
@@ -69,12 +70,26 @@ def _create_grad_scaler(enabled: bool):
         return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
+def _validation_visualization_index(
+    dataset_size: int,
+    selection_step: int,
+    seed: int,
+) -> int:
+    """Choose a reproducible random sample, covering each scene once per cycle."""
+    if dataset_size < 1:
+        raise ValueError("Cannot visualize an empty validation dataset.")
+    cycle, position = divmod(max(selection_step, 1) - 1, dataset_size)
+    generator = torch.Generator().manual_seed(seed + cycle)
+    return int(torch.randperm(dataset_size, generator=generator)[position].item())
+
+
 def _restore_training_state(
     path: str | Path,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler,
     device: torch.device,
+    metric_mode: str,
 ) -> tuple[int, float]:
     path = Path(path).expanduser()
     if not path.is_file():
@@ -89,6 +104,18 @@ def _restore_training_state(
         scheduler.load_state_dict(payload["scheduler"])
     completed_epoch = int(payload.get("epoch", 0))
     best_metric = float(payload.get("best_metric", -math.inf))
+    saved_config = payload.get("config", {})
+    saved_metric_mode = (
+        str(saved_config.get("metric_mode", "reflectance_2000"))
+        if isinstance(saved_config, dict)
+        else "reflectance_2000"
+    )
+    if saved_metric_mode != metric_mode:
+        print(
+            f"Validation metric mode changed from {saved_metric_mode} to {metric_mode}; "
+            "resetting best PSNR because the values are not comparable."
+        )
+        best_metric = -math.inf
     print(f"Resumed full training state from {path} at epoch {completed_epoch}.")
     return completed_epoch + 1, best_metric
 
@@ -100,9 +127,15 @@ def _visualize_validation_sample(
     epoch: int,
     output_root: Path,
     writer=None,
+    seed: int = 2026,
+    selection_step: int = 1,
 ) -> Path:
     model.eval()
-    batch = move_batch(next(iter(loader)), device)
+    dataset_index = _validation_visualization_index(
+        len(loader.dataset), selection_step, seed
+    )
+    sample = loader.dataset[dataset_index]
+    batch = move_batch(loader.collate_fn([sample]), device)
     with torch.no_grad():
         prediction, aux = model(batch["cond_image"], batch["valid_mask"], return_aux=True)
     sample_index = 0
@@ -164,6 +197,8 @@ def train(config: Dict) -> None:
     grad_clip = float(config.get("grad_clip", 1.0))
     order_weight = float(config.get("order_consistency_weight", 0.0))
     subset_weight = float(config.get("subset_consistency_weight", 0.0))
+    metric_mode = str(config.get("metric_mode", "original_tmfnet"))
+    print(f"Validation metric mode: {metric_mode}")
 
     save_dir = Path(config.get("save_dir", "checkpoints/tmfnet_pp"))
     log_file = Path(config.get("log_file", save_dir / "training_log.csv"))
@@ -175,10 +210,11 @@ def train(config: Dict) -> None:
     visualization_dir.mkdir(parents=True, exist_ok=True)
     best_psnr = -math.inf
     start_epoch = 1
+    visualization_step = 0
     resume_checkpoint = config.get("resume_checkpoint")
     if resume_checkpoint:
         start_epoch, best_psnr = _restore_training_state(
-            resume_checkpoint, model, optimizer, scheduler, device
+            resume_checkpoint, model, optimizer, scheduler, device, metric_mode
         )
     writer = _create_summary_writer(config)
     global_step = (start_epoch - 1) * len(train_loader)
@@ -271,8 +307,16 @@ def train(config: Dict) -> None:
                 )
             if epoch == start_epoch or epoch % visualization_interval == 0 or epoch == epochs:
                 path = _visualize_validation_sample(
-                    model, val_loader, device, epoch, visualization_dir, writer
+                    model,
+                    val_loader,
+                    device,
+                    epoch,
+                    visualization_dir,
+                    writer,
+                    seed=int(config.get("seed", 2026)),
+                    selection_step=visualization_step + 1,
                 )
+                visualization_step += 1
                 print(f"Saved validation visualization: {path}")
     finally:
         if writer is not None:

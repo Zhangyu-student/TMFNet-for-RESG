@@ -87,7 +87,7 @@ def save_training_visualization(
     gates: Optional[torch.Tensor] = None,
     stretch_percent: float = 2.0,
 ) -> Path:
-    """Save an original-style comparison plus weight/reliability diagnostics.
+    """Save the original single-row comparison and separate diagnostics.
 
     Inputs are unbatched: observations [T,C,H,W], prediction/target [C,H,W].
     The 2% linear stretch follows the original repository and affects PNGs only.
@@ -112,31 +112,25 @@ def save_training_visualization(
     target01 = ((target + 1.0) * 0.5).clamp(0.0, 1.0)
     error_array = _colorize_map((pred01 - target01).abs().mean(dim=0), normalize=True)
 
-    rows: list[list[tuple[np.ndarray, str]]] = [
-        [(array, f"Input T{index}") for array, index in zip(input_arrays, valid_indices)]
-        + [(pred_array, "Prediction"), (target_array, "Ground truth"), (error_array, "Abs. error")]
-    ]
+    comparison = [
+        (array, f"Input T{position + 1}")
+        for position, array in enumerate(input_arrays)
+    ] + [(pred_array, "Prediction"), (target_array, "Target")]
     if weights is not None:
         weights = weights.detach().float().cpu()
-        rows.append(
-            [(_colorize_map(weights[index]), f"Fusion weight T{index}") for index in valid_indices]
-        )
     if quality is not None:
         quality = quality.detach().float().cpu()
-        rows.append([(_colorize_map(quality[index]), f"Quality T{index}") for index in valid_indices])
     if gates is not None:
         gates = gates.detach().float().cpu()
-        rows.append([(_colorize_map(gates[index]), f"Contribution T{index}") for index in valid_indices])
 
-    columns = max(len(row) for row in rows)
+    columns = len(comparison)
     tile_width, tile_height = tile_size[0], tile_size[1] + 24
-    canvas = Image.new("RGB", (columns * tile_width, len(rows) * tile_height), (10, 10, 10))
-    for row_index, row in enumerate(rows):
-        for column_index, (array, label) in enumerate(row):
-            canvas.paste(
-                _labeled_tile(array, label, tile_size),
-                (column_index * tile_width, row_index * tile_height),
-            )
+    canvas = Image.new("RGB", (columns * tile_width, tile_height), (10, 10, 10))
+    for column_index, (array, label) in enumerate(comparison):
+        canvas.paste(
+            _labeled_tile(array, label, tile_size),
+            (column_index * tile_width, 0),
+        )
     canvas.save(output_path)
 
     # Separate files reproduce the original visualize2.py workflow for paper figures.

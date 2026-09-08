@@ -12,11 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from train import train
+from train import _validation_visualization_index, train
 from test import evaluate
 
 
 def main() -> None:
+    first_cycle = [
+        _validation_visualization_index(dataset_size=7, selection_step=step, seed=2026)
+        for step in range(1, 8)
+    ]
+    assert sorted(first_cycle) == list(range(7))
+
     with TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory)
         tile = "tile_001"
@@ -54,6 +60,7 @@ def main() -> None:
             "tensorboard": False,
             "reflectance_scale": 10000.0,
             "metric_reflectance_max": 2000.0,
+            "metric_mode": "original_tmfnet",
             "order_consistency_weight": 0.0,
             "subset_consistency_weight": 0.0,
             "save_dir": str(root / "checkpoints"),

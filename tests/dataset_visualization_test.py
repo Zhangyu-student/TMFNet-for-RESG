@@ -73,7 +73,8 @@ def main() -> None:
         assert (comparison_path.parent / "quality" / "quality.npy").is_file()
         assert (comparison_path.parent / "contribution_gates" / "gates.npy").is_file()
         with Image.open(comparison_path) as image:
-            assert image.width > 0 and image.height > 0
+            # Original-style main panel: T inputs + prediction + target, one row.
+            assert image.size == (6 * 20, 24 + 24)
     print("Dataset and visualization smoke test passed.")
 
 

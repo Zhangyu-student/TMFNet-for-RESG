@@ -47,6 +47,7 @@ def evaluate(config: Dict) -> None:
     dataset_type = str(config.get("dataset_type", "new_multi"))
     reflectance_scale = float(config.get("reflectance_scale", 10000.0))
     reflectance_max = float(config.get("metric_reflectance_max", 2000.0))
+    metric_mode = str(config.get("metric_mode", "original_tmfnet"))
 
     rows: List[Dict[str, object]] = []
     totals = {
@@ -80,7 +81,7 @@ def evaluate(config: Dict) -> None:
                 )
                 scores = image_metrics(
                     output[index], batch["gt_image"][index], dataset_type,
-                    reflectance_scale, reflectance_max,
+                    reflectance_scale, reflectance_max, metric_mode,
                 )
                 valid_t = int(batch["valid_mask"][index].sum())
                 weights = aux["weights_full"][index, :valid_t]

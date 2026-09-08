@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from loss import ReconstructionLoss
 from models import TMFNetPlusPlus
+from models.blocks import FeatureQualityEstimator
 
 
 def run_case(temporal_length: int) -> None:
@@ -55,7 +56,28 @@ def test_padding_invariance() -> None:
     print("Padding invariance: passed")
 
 
+def test_quality_semantics() -> None:
+    estimator = FeatureQualityEstimator(
+        channels=4,
+        hidden_channels=8,
+        temperature=1.5,
+        learned_strength=0.25,
+        quality_floor=0.02,
+    ).eval()
+    features = torch.zeros(1, 3, 4, 8, 8)
+    features[:, 1] = 5.0  # T1 is the sole strong temporal outlier.
+    valid_mask = torch.ones(1, 3, dtype=torch.bool)
+    with torch.no_grad():
+        quality = estimator(features, valid_mask)
+    consistent_quality = torch.minimum(quality[:, 0], quality[:, 2])
+    assert torch.all(quality[:, 1] < consistent_quality)
+    assert float(quality[:, 1].max()) <= 0.021
+    assert float(consistent_quality.min()) >= 0.75
+    print("Quality semantics: temporal outlier receives lower quality")
+
+
 if __name__ == "__main__":
+    test_quality_semantics()
     for length in (2, 3, 5):
         run_case(length)
     test_padding_invariance()

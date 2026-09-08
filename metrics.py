@@ -29,6 +29,26 @@ def tensor_to_reflectance(
     return reflectance.permute(1, 2, 0).numpy()
 
 
+def tensor_to_original_tmfnet_rgb(
+    tensor: torch.Tensor,
+    reflectance_scale: float = DEFAULT_REFLECTANCE_SCALE,
+    reflectance_max: float = DEFAULT_REFLECTANCE_MAX,
+) -> np.ndarray:
+    """Reproduce the original TMFNet new_multi RGB conversion exactly."""
+    reflectance = tensor_to_reflectance(tensor, reflectance_scale, reflectance_max)
+    if reflectance.shape[-1] < 3:
+        if reflectance.shape[-1] == 1:
+            reflectance = np.repeat(reflectance, 3, axis=-1)
+        else:
+            reflectance = np.concatenate([reflectance, reflectance[..., -1:]], axis=-1)
+    rgb = reflectance[..., :3]
+    rgb = rgb - np.min(rgb)
+    rgb_max = float(np.max(rgb))
+    rgb = np.full_like(rgb, 255.0) if rgb_max == 0 else 255.0 * rgb / rgb_max
+    rgb = np.nan_to_num(rgb, nan=float(np.nanmean(rgb)))
+    return rgb.astype(np.uint8)
+
+
 def calculate_sam(target: np.ndarray, prediction: np.ndarray) -> float:
     dot = np.sum(target * prediction, axis=-1)
     target_norm = np.linalg.norm(target, axis=-1)
@@ -46,20 +66,37 @@ def image_metrics(
     dataset_type: str = "new_multi",
     reflectance_scale: float = DEFAULT_REFLECTANCE_SCALE,
     reflectance_max: float = DEFAULT_REFLECTANCE_MAX,
+    metric_mode: str = "original_tmfnet",
 ) -> Dict[str, float]:
     if dataset_type == "new_multi":
-        pred = tensor_to_reflectance(prediction, reflectance_scale, reflectance_max)
-        gt = tensor_to_reflectance(target, reflectance_scale, reflectance_max)
-        data_range = reflectance_max
+        if metric_mode == "original_tmfnet":
+            pred = tensor_to_original_tmfnet_rgb(
+                prediction, reflectance_scale, reflectance_max
+            ).astype(np.float32)
+            gt = tensor_to_original_tmfnet_rgb(
+                target, reflectance_scale, reflectance_max
+            ).astype(np.float32)
+            data_range = 255.0
+            mae_value = float(torch.mean(torch.abs(prediction - target)).item())
+        elif metric_mode == "reflectance_2000":
+            pred = tensor_to_reflectance(prediction, reflectance_scale, reflectance_max)
+            gt = tensor_to_reflectance(target, reflectance_scale, reflectance_max)
+            data_range = reflectance_max
+            mae_value = float(np.mean(np.abs(gt - pred)))
+        else:
+            raise ValueError(
+                "metric_mode must be 'original_tmfnet' or 'reflectance_2000'."
+            )
     else:
         pred = tensor_to_numpy01(prediction)
         gt = tensor_to_numpy01(target)
         data_range = 1.0
+        mae_value = float(np.mean(np.abs(gt - pred)))
     return {
         "psnr": float(peak_signal_noise_ratio(gt, pred, data_range=data_range)),
         "ssim": float(structural_similarity(gt, pred, channel_axis=-1, data_range=data_range)),
         "sam": calculate_sam(gt, pred),
-        "mae": float(np.mean(np.abs(gt - pred))),
+        "mae": mae_value,
     }
 
 
@@ -107,8 +144,7 @@ def process_rgb(
     reflectance_max: float = DEFAULT_REFLECTANCE_MAX,
 ) -> np.ndarray:
     if dataset_name == "new_multi":
-        image = tensor_to_reflectance(tensor, reflectance_scale, reflectance_max)
-        image = image / reflectance_max
+        return tensor_to_original_tmfnet_rgb(tensor, reflectance_scale, reflectance_max)
     else:
         image = tensor_to_numpy01(tensor)
     return np.round(np.clip(image[..., :3], 0.0, 1.0) * 255.0).astype(np.uint8)

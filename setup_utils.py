@@ -19,8 +19,10 @@ def create_dataloader(config: Dict, mode: str) -> DataLoader:
     common = {
         "data_root": config["data_root"] if dataset_type == "new_multi" else os.path.join(config["data_root"], "multipleImage"),
         "input_channels": config.get("input_channels", 3),
-        "min_temporal": config.get("min_temporal", 2),
-        "max_temporal": config.get("max_temporal", 6),
+        # A split can override the global temporal range, e.g.
+        # val_min_temporal=val_max_temporal=3 for fixed 3-frame validation.
+        "min_temporal": config.get(f"{mode}_min_temporal", config.get("min_temporal", 2)),
+        "max_temporal": config.get(f"{mode}_max_temporal", config.get("max_temporal", 6)),
         "random_temporal_subset": config.get("random_temporal_subset", True),
         "random_reverse": config.get("random_reverse", True),
         "reflectance_scale": config.get("reflectance_scale", 10000.0),

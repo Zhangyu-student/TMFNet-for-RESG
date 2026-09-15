@@ -8,6 +8,8 @@
   "metric_mode": "original_tmfnet",
   "min_temporal": 2,
   "max_temporal": 6,
+  "val_min_temporal": 3,
+  "val_max_temporal": 3,
   "random_temporal_subset": true,
   "random_reverse": true,
   "base_channels": 48,

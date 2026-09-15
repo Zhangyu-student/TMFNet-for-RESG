@@ -68,10 +68,6 @@ def create_model(config: Dict, device: torch.device | str | None = None) -> TMFN
         state_dim=int(config.get("state_dim", 8)),
         temporal_expansion=int(config.get("temporal_expansion", 2)),
         dropout=float(config.get("dropout", 0.0)),
-        coarse_weight_blend=float(config.get("coarse_weight_blend", 0.25)),
-        quality_temperature=float(config.get("quality_temperature", 1.5)),
-        quality_learned_strength=float(config.get("quality_learned_strength", 0.25)),
-        quality_floor=float(config.get("quality_floor", 0.02)),
     ).to(device)
 
     checkpoint_path = config.get("pretrained_path") or config.get("checkpoint")

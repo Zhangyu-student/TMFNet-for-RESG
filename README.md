@@ -17,9 +17,9 @@ path with a variable-length, internally consistent architecture.
 flowchart LR
     A["Cloudy observations<br/>B × T × C × H × W"] --> B[Shared multi-scale encoder]
     M["valid_mask<br/>padding only"] --> B
-    B --> C[Feature-consistency reliability]
+    B --> C[Learned per-frame reliability]
     C --> D[Bidirectional quality-conditioned SSM]
-    D --> E[Hierarchical temporal weight refinement]
+    D --> E[Direct quality-weighted multi-scale fusion]
     E --> F[Direct reconstruction decoder]
     F --> G["Cloud-free prediction<br/>B × C × H × W"]
 ```
@@ -41,12 +41,10 @@ that is added back to an input frame.
    - Forward and backward temporal states are merged.
    - Reliability controls the selective state updates.
 
-3. **Feature-consistency quality estimation**
+3. **Learned frame-quality estimation**
    - Reliability means `1 = reliable`, `0 = degraded` throughout the code.
-   - A per-pixel temporal median provides a robust feature reference.
-   - Larger normalized disagreement is structurally mapped to lower quality;
-     the learned branch may only suppress quality further and cannot invert a
-     strong outlier into high reliability.
+   - A lightweight CNN predicts a per-pixel reliability map directly from each
+     encoded frame, without assuming that a temporal majority is cloud-free.
    - Quality scores are independent and are not forced to sum to one. No dates,
      cloud masks, or handcrafted GT-distance labels are used.
 
@@ -55,8 +53,8 @@ that is added back to an input frame.
      its map is resized for the middle and bottleneck feature scales.
    - Quality is normalized directly at the point where temporal features are
      fused. There is no separate selection or contribution gate.
-   - Coarse fusion weights are used as a configurable mild prior instead of
-     being multiplied recursively, reducing winner-take-all sharpening.
+   - Each feature scale uses the shared learned quality directly; coarse-scale
+     fusion weights are not imposed on finer scales.
    - Full-resolution quality and normalized fusion weights are available for
      visualization and analysis.
 
@@ -175,10 +173,6 @@ Edit `configs/tmfnet_pp.json`, especially:
 - `reflectance_scale` (normally `10000`) and `metric_reflectance_max` (`2000`)
 - `metric_mode`: `original_tmfnet` for baseline comparability, or
   `reflectance_2000` for fixed-range physical metrics
-- `coarse_weight_blend` (`0.25` by default; set `0` to remove the coarse prior)
-- `quality_temperature`: strength of temporal-outlier suppression (`1.5`)
-- `quality_learned_strength`: maximum learned downward adjustment (`0.25`)
-- `quality_floor`: numerical lower bound for a valid frame (`0.02`)
 - `tensorboard`, `tensorboard_dir`, `tensorboard_log_interval`
 - `checkpoint` for inference
 - `pretrained_path` for model-only initialization
@@ -208,13 +202,13 @@ padded sequence.
 ## Training
 
 ```bash
-python train.py --config configs/tmfnet_pp.json
+python train.py --config configs/tmfnet_pp_tmp.json
 ```
 
 The old command remains valid:
 
 ```bash
-python main_tmp.py --config configs/tmfnet_pp.json
+python main_tmp.py --config configs/tmfnet_pp_tmp.json
 ```
 
 Checkpoints:
@@ -264,13 +258,13 @@ Set either weight to `0` to disable the corresponding extra forward pass.
 ## Testing
 
 ```bash
-python test.py --config configs/tmfnet_pp.json --checkpoint checkpoints/TMFNet_pp/best_psnr.pth
+python test.py --config configs/tmfnet_pp_tmp.json --checkpoint checkpoints/TMFNet_pp/best_psnr.pth
 ```
 
 The old command also works:
 
 ```bash
-python test_png.py --config configs/tmfnet_pp.json --checkpoint checkpoints/TMFNet_pp/best_psnr.pth
+python test_png.py --config configs/tmfnet_pp_tmp.json --checkpoint checkpoints/TMFNet_pp/best_psnr.pth
 ```
 
 Outputs include restored images, GT images, per-image metrics, summary metrics,
@@ -310,16 +304,14 @@ strictly compatible. Train TMFNet++ from scratch, or selectively initialize the
 shared CNN layers after manually mapping matching tensor names and shapes.
 Checkpoints produced by the earlier base-residual TMFNet++ variant should also
 be retrained because its decoder learned a residual instead of the target image.
-Checkpoints trained before the median-consistency quality constraint can load
-because parameter shapes are unchanged, but should be retrained for the new
-high-quality/low-degradation semantics.
+Checkpoints from the earlier median-consistency quality estimator are not fully
+compatible because the quality head now consumes `C` rather than `2C` channels.
+Retrain the current model from scratch.
 
 ## Recommended ablations
 
 - Original-style unidirectional last/mean state vs bidirectional SSM.
-- Without feature-consistency reliability.
-- Without hierarchical weight refinement.
-- `coarse_weight_blend=0` vs `0.25` vs `0.5`.
+- Learned quality fusion vs uniform temporal averaging.
 - Alternative direct reconstruction heads.
 - Fixed `T=3` vs variable-length training.
 - Order and temporal-subset robustness.

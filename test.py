@@ -130,7 +130,7 @@ def evaluate(config: Dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test TMFNet++")
-    parser.add_argument("--config", default="configs/tmfnet_pp.json")
+    parser.add_argument("--config", default="configs/tmfnet_pp_tmp.json")
     parser.add_argument("--checkpoint", default=None)
     args = parser.parse_args()
     config = load_json(args.config)

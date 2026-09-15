@@ -324,7 +324,7 @@ def train(config: Dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train TMFNet++")
-    parser.add_argument("--config", default="configs/tmfnet_pp.json")
+    parser.add_argument("--config", default="configs/tmfnet_pp_tmp.json")
     args = parser.parse_args()
     train(load_json(args.config))
 

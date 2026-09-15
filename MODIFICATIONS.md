@@ -14,15 +14,12 @@
 
 - Fixed three-frame input → variable-length input with padding mask.
 - Unidirectional gated recurrence → bidirectional input-dependent diagonal SSM.
-- Frame-only suppression head → multi-scale feature-consistency quality.
-- Unconstrained learned quality → robust temporal-median consistency prior with
-  a bounded learned suppressor, structurally preserving `high = reliable`.
+- Frame-only suppression head → a shared learned per-pixel quality estimator.
 - Last-token/mean aggregation → quality-gated bidirectional temporal fusion.
 - Three independent quality heads → one quality map resized across all scales.
 - Selection/contribution gates and local refinement scores → direct normalized
   quality weights, with no redundant intermediate gate.
-- Independent skip averaging → quality-driven coarse-to-fine fusion with a
-  configurable mild coarse-weight blend.
+- Independent skip averaging → direct learned-quality fusion at every scale.
 - The current implementation uses direct decoder prediction without a
   base-image residual path.
 

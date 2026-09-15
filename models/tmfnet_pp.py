@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from .blocks import (
     DirectReconstructionDecoder,
     FeatureQualityEstimator,
-    HierarchicalWeightRefiner,
+    QualityWeightedFusion,
     SharedFrameEncoder,
 )
 from .temporal_ssm import BidirectionalQualityTemporalSSM
@@ -20,7 +20,7 @@ class TMFNetPlusPlus(nn.Module):
 
     Main components:
       1. Shared multi-scale spatial encoder.
-      2. One feature-consistency quality estimation branch.
+      2. One learned per-frame quality estimation branch.
       3. Bidirectional quality-conditioned selective SSM at the bottleneck.
       4. Direct quality-derived temporal fusion at every scale.
       5. Direct clear-image reconstruction decoder.
@@ -35,10 +35,6 @@ class TMFNetPlusPlus(nn.Module):
         state_dim: int = 8,
         temporal_expansion: int = 2,
         dropout: float = 0.0,
-        coarse_weight_blend: float = 0.25,
-        quality_temperature: float = 1.5,
-        quality_learned_strength: float = 0.25,
-        quality_floor: float = 0.02,
     ) -> None:
         super().__init__()
         if input_channels != output_channels:
@@ -48,13 +44,8 @@ class TMFNetPlusPlus(nn.Module):
         self.base_channels = base_channels
 
         self.encoder = SharedFrameEncoder(input_channels, base_channels)
-        quality_options = {
-            "temperature": quality_temperature,
-            "learned_strength": quality_learned_strength,
-            "quality_floor": quality_floor,
-        }
         self.quality1 = FeatureQualityEstimator(
-            base_channels, hidden_channels=24, **quality_options
+            base_channels, hidden_channels=24
         )
 
         self.temporal_fusion = BidirectionalQualityTemporalSSM(
@@ -64,8 +55,8 @@ class TMFNetPlusPlus(nn.Module):
             expansion=temporal_expansion,
             dropout=dropout,
         )
-        self.refine2 = HierarchicalWeightRefiner(coarse_blend=coarse_weight_blend)
-        self.refine1 = HierarchicalWeightRefiner(coarse_blend=coarse_weight_blend)
+        self.refine2 = QualityWeightedFusion()
+        self.refine1 = QualityWeightedFusion()
         self.decoder = DirectReconstructionDecoder(base_channels, output_channels)
 
     @staticmethod
@@ -113,8 +104,8 @@ class TMFNetPlusPlus(nn.Module):
         q3 = self._resize_quality(q1, f3.shape[-2:])
 
         deep, w3, states = self.temporal_fusion(f3, q3, valid_mask)
-        skip2, w2 = self.refine2(f2, q2, w3, valid_mask)
-        skip1, w1 = self.refine1(f1, q1, w2, valid_mask)
+        skip2, w2 = self.refine2(f2, q2, valid_mask)
+        skip1, w1 = self.refine1(f1, q1, valid_mask)
 
         output = self.decoder(deep, skip2, skip1, output_size=(h, w))
 

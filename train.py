@@ -177,7 +177,7 @@ def train(config: Dict) -> None:
         print("CUDA was requested but is unavailable; falling back to CPU.")
         device = torch.device("cpu")
     train_loader = create_dataloader(config, "train")
-    val_loader = create_dataloader(config, "val")
+    val_loader = create_dataloader(config, "test")
     model = create_model(config, device)
     criterion = ReconstructionLoss(**config.get("loss", {})).to(device)
 
@@ -324,7 +324,7 @@ def train(config: Dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train TMFNet++")
-    parser.add_argument("--config", default="configs/tmfnet_pp_tmp.json")
+    parser.add_argument("--config", default="configs/tmfnet_pp.json")
     args = parser.parse_args()
     train(load_json(args.config))
 
